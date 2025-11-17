@@ -29,4 +29,12 @@ router.get('/api/auth/profile', authRefreshMiddleware, async function (req, res,
     }
 });
 
+// Endpoint for MCP server to get access token
+router.get('/api/auth/mcp-token', authRefreshMiddleware, function (req, res) {
+    res.json({ 
+        access_token: req.internalOAuthToken.access_token,
+        expires_in: req.internalOAuthToken.expires_in
+    });
+});
+
 module.exports = router;

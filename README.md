@@ -52,6 +52,157 @@ SERVER_SESSION_SECRET="<secret-phrase>" # phrase used to encrypt/decrypt server 
 > When using [Visual Studio Code](https://code.visualstudio.com), you can run & debug
 > the application by pressing `F5`.
 
+## MCP (Model Context Protocol) Integration
+
+This project includes an MCP server that enables integration with MCP-UI enabled experiences, allowing you to interact with your Fusion Hubs, Projects, and Files through natural language prompts.
+
+### MCP Server Features
+
+- **Tree View Navigation**: Browse hubs, projects, and files in a hierarchical tree structure
+- **Natural Language Queries**: Use prompts like "Show me the contents of my Fusion Hubs" or "Show me my Fusion model named Words"
+- **Search Functionality**: Search for specific hubs, projects, or files by name
+- **Viewer Integration**: Access viewer URNs for files to enable inline viewing in MCP-UI
+
+### Setting Up the MCP Server
+
+**📖 For detailed setup and usage instructions, see [MCP_USAGE.md](MCP_USAGE.md)**
+
+Quick start:
+
+1. **Get an access token**:
+   - Start the Express server: `npm start`
+   - Log in at http://localhost:8080
+   - Get token: `curl http://localhost:8080/api/auth/mcp-token`
+
+2. **Configure your MCP client** (Cursor IDE, Claude Desktop, etc.):
+   
+   **For Cursor IDE**: Open Settings → Search "MCP" → Edit configuration file
+   
+   **For Claude Desktop**: Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+   
+   Add this configuration:
+   ```json
+   {
+     "mcpServers": {
+       "aps-hubs-browser": {
+         "command": "node",
+         "args": ["/absolute/path/to/aps-hubs-browser-nodejs/mcp-server.js"],
+         "env": {
+           "APS_ACCESS_TOKEN": "your-access-token-here",
+           "APS_SERVER_URL": "http://localhost:8080"
+         }
+       }
+     }
+   }
+   ```
+
+3. **Restart your MCP client** and start using prompts like:
+   - "Show me the contents of my Fusion Hubs"
+   - "Show me my Fusion model named Words"
+
+### Available MCP Tools
+
+- `list_hubs` - List all Fusion Hubs
+- `list_projects` - List projects in a specific hub
+- `list_files` - List files and folders in a project
+- `search_hubs` - Search for hubs, projects, or files by name
+- `get_file_viewer_urn` - Get the URN for viewing a file in the Autodesk Viewer
+- `handle_prompt` - Handle natural language prompts about Fusion Hubs
+
+### Available MCP Resources
+
+- `aps://hubs` - Tree view of all Fusion Hubs, Projects, and Files
+- `aps://hubs/{hubId}` - Tree view of projects in a specific hub
+- `aps://hubs/{hubId}/projects/{projectId}` - Tree view of files and folders in a project
+
+### Example Prompts for MCP-UI
+
+- "Show me the contents of my Fusion Hubs"
+- "Show me my Fusion model named Words"
+- "List all projects in my hub"
+- "Find the file called 'Assembly'"
+
+The MCP server will parse these prompts and return appropriate tree-structured data that MCP-UI can render as an inline navigable tree view.
+
+## MCP-UI Integration
+
+This project includes full MCP-UI integration with structured UI resources and action handling.
+
+### UI Resources
+
+Structured UI resources are available in `server/mcpUiResources/uiResources.js`:
+
+- **Project Info Panel** (`ui://project/info`) - Displays project metadata with refresh action
+- **Folder Actions Panel** (`ui://folder/actions`) - Provides folder operations (create item, refresh, view details)
+- **Hub Overview Panel** (`ui://hub/overview`) - Shows hub statistics
+
+### Express Endpoints
+
+The server exposes MCP-UI endpoints:
+
+- `GET /mcp-ui/resource/:resourceId` - Fetch a UI resource by ID
+  - Query params: `projectId`, `hubId`, `folderId`, etc. for dynamic data
+  - Example: `GET /mcp-ui/resource/project/info?projectId=xxx&hubId=yyy`
+  
+- `GET /mcp-ui/resources` - List all available UI resource IDs
+
+- `POST /mcp-ui/action` - Handle UI actions from MCP UI components
+  - Body: `{ type: 'tool', payload: { toolName: string, params: object } }`
+  - Returns: `{ status: 'ok' | 'error', data?: any, error?: string }`
+
+### Adding New UI Resources
+
+1. Create a new resource function in `server/mcpUiResources/uiResources.js`:
+```javascript
+function createMyPanel(data = {}) {
+    return createUIResource({
+        uri: 'ui://my/panel',
+        name: 'My Panel',
+        mimeType: 'text/html',
+        text: '<html>...</html>'
+    });
+}
+```
+
+2. Add it to `uiResourceMap`:
+```javascript
+const uiResourceMap = {
+    // ... existing resources
+    'my/panel': (data) => createMyPanel(data),
+};
+```
+
+3. The resource will be available at `GET /mcp-ui/resource/my/panel`
+
+### Action Protocol
+
+UI resources can send actions via `window.parent.postMessage()`:
+
+```javascript
+const action = {
+    type: 'tool',
+    payload: {
+        toolName: 'refreshProject',
+        params: { hubId: 'xxx', projectId: 'yyy' }
+    }
+};
+window.parent.postMessage(action, '*');
+```
+
+The `POST /mcp-ui/action` endpoint handles these actions and can:
+- Call APS APIs
+- Refresh data
+- Perform operations
+- Return results to the UI
+
+See `routes/mcpUi.js` for implementation details.
+
+### Documentation
+
+- `MCP_UI_INTEGRATION.md` - Complete MCP UI integration guide
+- `MCP_UI_PROMPT_TACK_STATUS.md` - Implementation status vs prompt-tack requirements
+- `MCP_USAGE.md` - MCP server usage guide
+
 ## Troubleshooting
 
 Please contact us via https://aps.autodesk.com/en/support/get-help.

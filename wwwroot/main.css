@@ -31,6 +31,8 @@ body, html {
     right: 0;
     top: 3em;
     bottom: 0;
+    background-color: #f5f5f5;
+    border-left: 1px solid #ddd;
 }
 
 #header > * {
@@ -89,4 +91,110 @@ body, html {
 .icon-version:before {
     background-image: url(https://raw.githubusercontent.com/primer/octicons/main/icons/clock-16.svg);
     background-size: cover;
+}
+
+/* MCP-UI Panel Styles */
+.mcp-ui-container {
+    position: fixed;
+    top: 3em;
+    right: 0;
+    width: 400px;
+    bottom: 0;
+    background: white;
+    box-shadow: -2px 0 8px rgba(0,0,0,0.1);
+    z-index: 1000;
+    display: none;
+}
+
+.mcp-ui-container.sidebar-panel {
+    width: 400px;
+    border-left: 1px solid #ddd;
+}
+
+.mcp-ui-container.modal-panel {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 600px;
+    height: 500px;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+
+.mcp-ui-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.mcp-ui-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid #ddd;
+    background: #f8f9fa;
+}
+
+.mcp-ui-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.mcp-ui-header .close-btn {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.mcp-ui-header .close-btn:hover {
+    background: #e9ecef;
+    color: #000;
+}
+
+.mcp-ui-content {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+}
+
+.mcp-ui-content .loading,
+.mcp-ui-content .error {
+    padding: 20px;
+    text-align: center;
+    color: #666;
+}
+
+.mcp-ui-content .error {
+    color: #dc3545;
+}
+
+.mcp-ui-btn {
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 14px;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.mcp-ui-btn:hover {
+    opacity: 1;
+}
+
+.inspire-tree-node:hover .mcp-ui-btn {
+    opacity: 1;
 }

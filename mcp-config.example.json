@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "aps-hubs-browser": {
+      "command": "node",
+      "args": ["mcp-server.js"],
+      "env": {
+        "APS_ACCESS_TOKEN": "your-access-token-here",
+        "APS_SERVER_URL": "http://localhost:8080"
+      }
+    }
+  }
+}
+

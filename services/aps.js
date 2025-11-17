@@ -70,13 +70,64 @@ service.getProjects = async (hubId, accessToken) => {
     return resp.data;
 };
 
+/**
+ * Convert folder URN to folder ID format expected by SDK
+ * The APS SDK getFolderContents appears to strip the 'urn:' prefix and URL-encode the rest
+ * Based on error logs, the SDK expects: adsk.wipprod:fs.folder:co.xxxxx (without urn: prefix)
+ * But the API actually needs the full URN. This is a workaround for SDK behavior.
+ */
+function normalizeFolderId(folderId) {
+    if (!folderId) return null;
+    
+    // The SDK's getFolderContents method seems to strip 'urn:' prefix
+    // But based on the folder object links, the API needs the full URN
+    // However, the SDK is doing its own processing, so we'll try without the prefix first
+    // If that doesn't work, the error handler will retry with the full URN
+    
+    // Remove 'urn:' prefix if present (SDK seems to expect this)
+    if (folderId.startsWith('urn:')) {
+        return folderId.substring(4); // Return without 'urn:' prefix
+    }
+    
+    // Return as-is if no prefix
+    return folderId;
+}
+
 service.getProjectContents = async (hubId, projectId, folderId, accessToken) => {
     if (!folderId) {
         const resp = await dataManagementClient.getProjectTopFolders(hubId, projectId, { accessToken });
         return resp.data;
     } else {
-        const resp = await dataManagementClient.getFolderContents(projectId, folderId, { accessToken });
-        return resp.data;
+        // Normalize folder ID format
+        const normalizedFolderId = normalizeFolderId(folderId);
+        console.log('Getting folder contents:', { projectId, folderId, normalizedFolderId });
+        
+        try {
+            // Try with normalized ID first (without urn: prefix, as SDK seems to expect)
+            const resp = await dataManagementClient.getFolderContents(projectId, normalizedFolderId, { accessToken });
+            return resp.data;
+        } catch (error) {
+            console.error('Error in getFolderContents with normalized ID:', {
+                projectId,
+                originalFolderId: folderId,
+                normalizedFolderId,
+                error: error.message
+            });
+            
+            // If normalized failed and original had 'urn:' prefix, try with full URN
+            // The SDK might need the full URN despite what we thought
+            if (folderId.startsWith('urn:') && normalizedFolderId !== folderId) {
+                console.log('Retrying with full URN (urn: prefix included)...');
+                try {
+                    const resp = await dataManagementClient.getFolderContents(projectId, folderId, { accessToken });
+                    return resp.data;
+                } catch (retryError) {
+                    console.error('Retry with full URN also failed:', retryError.message);
+                    throw error; // Throw original error
+                }
+            }
+            throw error;
+        }
     }
 };
 
