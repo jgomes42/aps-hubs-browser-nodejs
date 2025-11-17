@@ -5,7 +5,7 @@
 
 const express = require('express');
 const { getUIResource, listUIResources } = require('../server/mcpUiResources/uiResources.js');
-const { getProjects, getProjectContents } = require('../services/aps.js');
+const { getProjects, getProjectContents, getItemVersions } = require('../services/aps.js');
 const { authRefreshMiddleware } = require('../services/aps.js');
 
 const router = express.Router();
@@ -193,15 +193,49 @@ router.post('/action', authRefreshMiddleware, express.json(), async (req, res, n
                                 params.folderId,
                                 token
                             );
+                            
+                            // Fetch versions for each file item
+                            const itemsWithVersions = await Promise.all(
+                                contents.slice(0, 20).map(async (item) => {
+                                    const isFolder = item.type === 'folders';
+                                    const itemData = {
+                                        id: item.id,
+                                        name: item.attributes?.displayName || 'Unknown',
+                                        type: item.type,
+                                        attributes: item.attributes
+                                    };
+                                    
+                                    // For files, fetch versions
+                                    if (!isFolder) {
+                                        try {
+                                            const versions = await getItemVersions(params.projectId, item.id, token);
+                                            if (versions && versions.length > 0) {
+                                                itemData.versions = versions.map(version => ({
+                                                    id: version.id,
+                                                    name: version.attributes?.displayName || 
+                                                          version.attributes?.name || 
+                                                          version.id,
+                                                    createTime: version.attributes?.createTime || 
+                                                               version.attributes?.lastModifiedTime || 
+                                                               'N/A',
+                                                    versionNumber: version.attributes?.versionNumber
+                                                }));
+                                            }
+                                        } catch (versionError) {
+                                            console.error(`Error fetching versions for item ${item.id}:`, versionError.message);
+                                            // Continue without versions
+                                        }
+                                    }
+                                    
+                                    return itemData;
+                                })
+                            );
+                            
                             result = {
                                 status: 'ok',
                                 data: {
                                     itemCount: contents.length,
-                                    items: contents.map(item => ({
-                                        id: item.id,
-                                        name: item.attributes?.displayName || 'Unknown',
-                                        type: item.type
-                                    }))
+                                    items: itemsWithVersions
                                 }
                             };
                         } catch (apiError) {
@@ -247,16 +281,50 @@ router.post('/action', authRefreshMiddleware, express.json(), async (req, res, n
                                 params.folderId,
                                 token
                             );
+                            
+                            // Fetch versions for each file item
+                            const itemsWithVersions = await Promise.all(
+                                contents.slice(0, 20).map(async (item) => {
+                                    const isFolder = item.type === 'folders';
+                                    const itemData = {
+                                        id: item.id,
+                                        name: item.attributes?.displayName || 'Unknown',
+                                        type: item.type,
+                                        attributes: item.attributes
+                                    };
+                                    
+                                    // For files, fetch versions
+                                    if (!isFolder) {
+                                        try {
+                                            const versions = await getItemVersions(params.projectId, item.id, token);
+                                            if (versions && versions.length > 0) {
+                                                itemData.versions = versions.map(version => ({
+                                                    id: version.id,
+                                                    name: version.attributes?.displayName || 
+                                                          version.attributes?.name || 
+                                                          version.id,
+                                                    createTime: version.attributes?.createTime || 
+                                                               version.attributes?.lastModifiedTime || 
+                                                               'N/A',
+                                                    versionNumber: version.attributes?.versionNumber
+                                                }));
+                                            }
+                                        } catch (versionError) {
+                                            console.error(`Error fetching versions for item ${item.id}:`, versionError.message);
+                                            // Continue without versions
+                                        }
+                                    }
+                                    
+                                    return itemData;
+                                })
+                            );
+                            
                             result = {
                                 status: 'ok',
                                 data: {
                                     folderId: params.folderId,
                                     itemCount: contents.length,
-                                    items: contents.slice(0, 10).map(item => ({
-                                        id: item.id,
-                                        name: item.attributes?.displayName || 'Unknown',
-                                        type: item.type
-                                    }))
+                                    items: itemsWithVersions
                                 }
                             };
                         } catch (apiError) {
@@ -279,10 +347,32 @@ router.post('/action', authRefreshMiddleware, express.json(), async (req, res, n
             res.json(result);
         } else if (action.type === 'intent') {
             // Handle intent-based actions
-            res.json({
-                status: 'ok',
-                message: 'Intent actions not yet implemented'
-            });
+            const { intent, params } = action.payload || {};
+            
+            switch (intent) {
+                case 'view_version':
+                    // Handle version viewing intent
+                    console.log('view_version intent:', params);
+                    res.json({
+                        status: 'ok',
+                        message: 'Version view intent received',
+                        data: {
+                            intent: 'view_version',
+                            itemId: params.itemId,
+                            versionId: params.versionId,
+                            versionName: params.versionName,
+                            hubId: params.hubId,
+                            projectId: params.projectId
+                        }
+                    });
+                    break;
+                    
+                default:
+                    res.json({
+                        status: 'ok',
+                        message: `Intent '${intent}' received but not yet implemented`
+                    });
+            }
         } else {
             res.status(400).json({
                 status: 'error',

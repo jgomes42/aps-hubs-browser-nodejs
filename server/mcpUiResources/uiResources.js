@@ -268,25 +268,74 @@ function createFolderActionsPanel(folderData = {}) {
         }
         .item {
             padding: 8px 12px;
-            margin-bottom: 4px;
+            margin-bottom: 2px;
             background: #f8f9fa;
             border-radius: 4px;
             display: flex;
             align-items: center;
             gap: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .item:hover {
+            background: #e9ecef;
+        }
+        .item.expanded {
+            background: #e9ecef;
         }
         .item-icon {
             font-size: 16px;
+            width: 20px;
+            text-align: center;
         }
         .item-name {
             flex: 1;
             font-size: 13px;
             color: #1a1a1a;
+            font-weight: 500;
         }
         .item-type {
             font-size: 11px;
             color: #666;
             text-transform: uppercase;
+        }
+        .item-expander {
+            width: 16px;
+            font-size: 12px;
+            color: #666;
+            cursor: pointer;
+            user-select: none;
+        }
+        .item-versions {
+            margin-left: 28px;
+            margin-top: 4px;
+            display: none;
+        }
+        .item.expanded .item-versions {
+            display: block;
+        }
+        .version-item {
+            padding: 6px 12px;
+            margin-bottom: 2px;
+            background: white;
+            border-left: 2px solid #007bff;
+            border-radius: 2px;
+            font-size: 12px;
+            color: #495057;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .version-item:hover {
+            background: #f0f0f0;
+        }
+        .version-name {
+            font-weight: 500;
+            color: #1a1a1a;
+        }
+        .version-time {
+            font-size: 11px;
+            color: #6c757d;
+            margin-top: 2px;
         }
         .item-count {
             font-size: 12px;
@@ -368,7 +417,26 @@ function createFolderActionsPanel(folderData = {}) {
             sendAction('getFolderDetails', {});
         });
         
-        // Render folder contents
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+        
+        // Format date/time for display
+        function formatDateTime(dateTimeStr) {
+            if (!dateTimeStr || dateTimeStr === 'N/A') return 'N/A';
+            try {
+                const date = new Date(dateTimeStr);
+                return date.toLocaleString();
+            } catch (e) {
+                return dateTimeStr;
+            }
+        }
+        
+        // Render folder contents with expandable versions
         function renderFolderContents(data) {
             console.log('renderFolderContents called with:', data);
             
@@ -395,16 +463,96 @@ function createFolderActionsPanel(folderData = {}) {
             
             console.log('Rendering ' + data.items.length + ' items');
             itemCount.textContent = 'Found ' + (data.itemCount || data.items.length) + ' item(s)';
-            itemsList.innerHTML = data.items.map(item => {
+            
+            itemsList.innerHTML = data.items.map((item, index) => {
                 const icon = item.type === 'folders' ? '📁' : '📄';
-                const name = item.name || (item.attributes && item.attributes.displayName) || 'Unknown';
+                const name = escapeHtml(item.name || (item.attributes && item.attributes.displayName) || 'Unknown');
                 const type = item.type === 'folders' ? 'Folder' : 'File';
-                return '<div class="item">' +
+                const hasVersions = item.versions && item.versions.length > 0;
+                const itemId = 'item-' + index;
+                
+                // Build versions HTML if available
+                let versionsHtml = '';
+                if (hasVersions) {
+                    versionsHtml = '<div class="item-versions">' +
+                        item.versions.map(version => {
+                            const versionName = escapeHtml(version.name || version.id);
+                            const versionTime = formatDateTime(version.createTime);
+                            return '<div class="version-item" data-version-id="' + escapeHtml(version.id) + 
+                                   '" data-item-id="' + escapeHtml(item.id) + '">' +
+                                   '<div class="version-name">' + versionName + '</div>' +
+                                   '<div class="version-time">' + versionTime + '</div>' +
+                                   '</div>';
+                        }).join('') +
+                        '</div>';
+                }
+                
+                const expander = hasVersions ? 
+                    '<span class="item-expander" data-item-id="' + itemId + '">▶</span>' : 
+                    '<span class="item-expander" style="visibility: hidden;">▶</span>';
+                
+                return '<div class="item" id="' + itemId + '" data-has-versions="' + hasVersions + 
+                       '" data-item-id="' + escapeHtml(item.id) + '">' +
+                    expander +
                     '<span class="item-icon">' + icon + '</span>' +
                     '<span class="item-name">' + name + '</span>' +
                     '<span class="item-type">' + type + '</span>' +
+                    versionsHtml +
                     '</div>';
             }).join('');
+            
+            // Add click handlers for expandable items
+            itemsList.querySelectorAll('.item[data-has-versions="true"]').forEach(itemEl => {
+                itemEl.addEventListener('click', function(e) {
+                    // Don't toggle if clicking on a version item
+                    if (e.target.closest('.version-item')) {
+                        return;
+                    }
+                    
+                    const itemId = this.id;
+                    const expander = this.querySelector('.item-expander');
+                    const versionsDiv = this.querySelector('.item-versions');
+                    
+                    if (this.classList.contains('expanded')) {
+                        this.classList.remove('expanded');
+                        if (expander) expander.textContent = '▶';
+                    } else {
+                        this.classList.add('expanded');
+                        if (expander) expander.textContent = '▼';
+                    }
+                });
+            });
+            
+            // Add click handlers for version items
+            itemsList.querySelectorAll('.version-item').forEach(versionEl => {
+                versionEl.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const versionId = this.getAttribute('data-version-id');
+                    const itemId = this.getAttribute('data-item-id');
+                    const versionName = this.querySelector('.version-name').textContent;
+                    
+                    console.log('Version clicked:', { versionId, itemId, versionName });
+                    
+                    // Send intent to view this version
+                    const action = {
+                        type: 'intent',
+                        payload: {
+                            intent: 'view_version',
+                            params: {
+                                hubId: '${hubId || ''}',
+                                projectId: '${projectId || ''}',
+                                itemId: itemId,
+                                versionId: versionId,
+                                versionName: versionName
+                            }
+                        }
+                    };
+                    
+                    if (window.parent && window.parent !== window) {
+                        window.parent.postMessage(action, '*');
+                    }
+                });
+            });
             
             resultsDiv.classList.add('show');
             console.log('Results div should now be visible');
