@@ -47,12 +47,22 @@ export function initViewer(container) {
 }
 
 export function loadModel(viewer, urn) {
+    console.log('🎯 Main App - loadModel called with URN:', urn);
+    console.log('🎯 Main App - URN type:', typeof urn);
+    console.log('🎯 Main App - URN length:', urn?.length);
+    
     function onDocumentLoadSuccess(doc) {
+        console.log('✅ Main App - Document loaded successfully:', doc);
         viewer.loadDocumentNode(doc, doc.getRoot().getDefaultGeometry());
     }
     function onDocumentLoadFailure(code, message) {
+        console.error('❌ Main App - Error loading document:', code, message);
         alert('Could not load model. See console for more details.');
         console.error(message);
     }
-    Autodesk.Viewing.Document.load('urn:' + urn, onDocumentLoadSuccess, onDocumentLoadFailure);
+    
+    const fullUrn = 'urn:' + urn;
+    console.log('🎯 Main App - Full URN for Document.load:', fullUrn);
+    
+    Autodesk.Viewing.Document.load(fullUrn, onDocumentLoadSuccess, onDocumentLoadFailure);
 }

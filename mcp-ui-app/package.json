@@ -10,7 +10,8 @@
   "dependencies": {
     "@mcp-ui/client": "^5.13.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^7.9.6"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",

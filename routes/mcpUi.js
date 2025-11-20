@@ -7,8 +7,138 @@ const express = require('express');
 const { getUIResource, listUIResources } = require('../server/mcpUiResources/uiResources.js');
 const { getProjects, getProjectContents, getItemVersions } = require('../services/aps.js');
 const { authRefreshMiddleware } = require('../services/aps.js');
+const { DataManagementClient } = require('@aps_sdk/data-management');
 
 const router = express.Router();
+
+// CORS middleware for cross-origin requests from React app
+// Note: App-level CORS is also configured in server.js for /mcp-ui routes
+// This router-level middleware is redundant but kept for safety
+router.use((req, res, next) => {
+    const origin = req.headers.origin;
+    
+    // Allow requests from React app (port 3000) or same origin (port 8080)
+    if (origin && (origin.startsWith('http://localhost:3000') || origin.startsWith('http://localhost:8080'))) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+    } else if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+    } else {
+        res.header('Access-Control-Allow-Origin', '*');
+    }
+    
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    // Handle preflight OPTIONS requests
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    
+    next();
+});
+
+/**
+ * GET /mcp-ui/api/item/:projectId/:itemId/versions
+ * Get all versions for a specific item
+ * Used by the standalone version viewer
+ * 
+ * NOTE: This route must be defined BEFORE the /resource/* route to ensure it matches
+ */
+router.get('/api/item/:projectId/:itemId/versions', authRefreshMiddleware, async (req, res) => {
+    try {
+        const { projectId, itemId } = req.params;
+        
+        // Decode URL-encoded parameters (Express should do this automatically, but just in case)
+        const decodedProjectId = decodeURIComponent(projectId);
+        const decodedItemId = decodeURIComponent(itemId);
+        
+        // Check authentication
+        if (!req.internalOAuthToken || !req.internalOAuthToken.access_token) {
+            return res.status(401).json({
+                status: 'error',
+                error: 'Authentication required. Please log in first.'
+            });
+        }
+        
+        const token = req.internalOAuthToken.access_token;
+        
+        console.log('Fetching versions for item:', { 
+            projectId: decodedProjectId, 
+            itemId: decodedItemId,
+            rawProjectId: projectId,
+            rawItemId: itemId
+        });
+        
+        // Get versions
+        const versions = await getItemVersions(decodedProjectId, decodedItemId, token);
+        
+        // Try to get item name from version data or itemId
+        let itemName = 'Unknown Item';
+        try {
+            // Try to extract item name from the first version's relationships or attributes
+            if (versions && versions.length > 0) {
+                const firstVersion = versions[0];
+                // Versions might have item relationship data
+                if (firstVersion.relationships && firstVersion.relationships.item) {
+                    // Try to get name from item relationship
+                    const itemData = firstVersion.relationships.item.data;
+                    if (itemData && itemData.attributes && itemData.attributes.displayName) {
+                        itemName = itemData.attributes.displayName;
+                    }
+                }
+                // If still not found, try to get from version's itemName attribute
+                if (itemName === 'Unknown Item' && firstVersion.attributes?.itemName) {
+                    itemName = firstVersion.attributes.itemName;
+                }
+            }
+            
+            // Fallback: try to extract readable name from itemId
+            if (itemName === 'Unknown Item') {
+                // Try to decode or extract name from itemId
+                // ItemId format is usually: urn:adsk.wipprod:dm.lineage:xxx
+                // We can use a shortened version for display
+                const parts = decodedItemId.split(':');
+                if (parts.length > 0) {
+                    itemName = `Item ${parts[parts.length - 1].substring(0, 8)}...`;
+                } else {
+                    itemName = decodedItemId.substring(0, 50);
+                }
+            }
+        } catch (err) {
+            console.warn('Could not extract item name:', err.message);
+            // Use shortened itemId as fallback
+            itemName = decodedItemId.length > 50 ? decodedItemId.substring(0, 50) + '...' : decodedItemId;
+        }
+        
+        // Format versions for the frontend
+        const formattedVersions = versions.map(version => ({
+            id: version.id,
+            name: version.attributes?.displayName || 
+                  version.attributes?.name || 
+                  version.id,
+            createTime: version.attributes?.createTime || 
+                       version.attributes?.lastModifiedTime || 
+                       'N/A',
+            versionNumber: version.attributes?.versionNumber,
+            attributes: version.attributes
+        }));
+        
+        res.json({
+            status: 'ok',
+            itemId: decodedItemId,
+            itemName: itemName,
+            versions: formattedVersions
+        });
+    } catch (error) {
+        console.error('Error fetching item versions:', error);
+        res.status(500).json({
+            status: 'error',
+            error: error.message || 'Failed to fetch versions'
+        });
+    }
+});
 
 /**
  * GET /mcp-ui/resource/*
@@ -351,20 +481,63 @@ router.post('/action', authRefreshMiddleware, express.json(), async (req, res, n
             
             switch (intent) {
                 case 'view_version':
-                    // Handle version viewing intent
+                    // Handle version viewing intent - get viewer URN for the version
                     console.log('view_version intent:', params);
-                    res.json({
-                        status: 'ok',
-                        message: 'Version view intent received',
-                        data: {
-                            intent: 'view_version',
+                    
+                    if (!params.itemId || !params.versionId || !params.projectId) {
+                        res.json({
+                            status: 'error',
+                            error: 'Missing required parameters: itemId, versionId, or projectId'
+                        });
+                        return;
+                    }
+                    
+                    try {
+                        // For viewing, we should use the itemId (lineage URN) not the versionId
+                        // The itemId format is: urn:adsk.wipprod:dm.lineage:xxx
+                        // This is what the viewer expects - the lineage URN represents the item
+                        // The version is automatically the latest or can be specified
+                        const token = req.internalOAuthToken.access_token;
+                        
+                        // Use itemId as the viewer URN (this is what the tree uses when clicking files)
+                        // The itemId is the lineage URN which is what Autodesk Viewer needs
+                        let viewerUrn = params.itemId;
+                        
+                        if (!viewerUrn) {
+                            // Fallback: try to extract from versionId if itemId not provided
+                            viewerUrn = params.versionId;
+                            if (viewerUrn.includes('?')) {
+                                viewerUrn = viewerUrn.split('?')[0];
+                            }
+                        }
+                        
+                        console.log('Viewer URN for version:', {
                             itemId: params.itemId,
                             versionId: params.versionId,
-                            versionName: params.versionName,
-                            hubId: params.hubId,
-                            projectId: params.projectId
-                        }
-                    });
+                            viewerUrn: viewerUrn
+                        });
+                        
+                        res.json({
+                            status: 'ok',
+                            message: 'Version view intent received',
+                            data: {
+                                intent: 'view_version',
+                                itemId: params.itemId,
+                                versionId: params.versionId,
+                                versionName: params.versionName,
+                                hubId: params.hubId,
+                                projectId: params.projectId,
+                                viewerUrn: viewerUrn, // Use itemId (lineage URN) for viewing
+                                viewerUrl: `https://aps.autodesk.com/viewers/viewer.html?urn=${encodeURIComponent(viewerUrn)}`
+                            }
+                        });
+                    } catch (error) {
+                        console.error('Error handling view_version intent:', error);
+                        res.json({
+                            status: 'error',
+                            error: error.message || 'Failed to process version view intent'
+                        });
+                    }
                     break;
                     
                 default:
@@ -385,6 +558,114 @@ router.post('/action', authRefreshMiddleware, express.json(), async (req, res, n
         res.status(500).json({
             status: 'error',
             error: error.message || 'An unexpected error occurred while processing the action'
+        });
+    }
+});
+
+/**
+ * In-memory store for viewer load requests from React app
+ * Key: session ID or timestamp, Value: viewer load request data
+ */
+const viewerLoadRequests = new Map();
+
+/**
+ * POST /mcp-ui/notify-viewer-load
+ * Receives viewer load requests from React app (cross-origin)
+ * Stores the request so the main app can poll for it
+ */
+router.post('/notify-viewer-load', express.json(), (req, res) => {
+    try {
+        const request = req.body;
+        
+        if (!request || !request.type || request.type !== 'load-viewer-version') {
+            return res.status(400).json({
+                status: 'error',
+                error: 'Invalid request format. Expected type: load-viewer-version'
+            });
+        }
+        
+        // Store the request with a timestamp key
+        const requestId = Date.now().toString();
+        viewerLoadRequests.set(requestId, {
+            ...request,
+            timestamp: Date.now()
+        });
+        
+        // Clean up old requests (older than 30 seconds)
+        const now = Date.now();
+        for (const [id, req] of viewerLoadRequests.entries()) {
+            if (now - req.timestamp > 30000) {
+                viewerLoadRequests.delete(id);
+            }
+        }
+        
+        console.log('Stored viewer load request:', requestId, request);
+        
+        res.json({
+            status: 'ok',
+            requestId: requestId,
+            message: 'Viewer load request stored'
+        });
+    } catch (error) {
+        console.error('Error storing viewer load request:', error);
+        res.status(500).json({
+            status: 'error',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * GET /mcp-ui/poll-viewer-load
+ * Main app polls this endpoint to check for viewer load requests
+ * Returns the most recent request and removes it from the store
+ */
+router.get('/poll-viewer-load', (req, res) => {
+    try {
+        // Get the most recent request
+        let latestRequest = null;
+        let latestId = null;
+        let latestTimestamp = 0;
+        
+        // Log total requests in store (for debugging)
+        const requestCount = viewerLoadRequests.size;
+        if (requestCount > 0) {
+            console.log(`Polling: Found ${requestCount} request(s) in store`);
+        }
+        
+        for (const [id, request] of viewerLoadRequests.entries()) {
+            if (request.timestamp > latestTimestamp) {
+                latestTimestamp = request.timestamp;
+                latestRequest = request;
+                latestId = id;
+            }
+        }
+        
+        if (latestRequest) {
+            // Remove the request after returning it
+            viewerLoadRequests.delete(latestId);
+            console.log('Returning viewer load request to main app:', {
+                requestId: latestId,
+                itemId: latestRequest.itemId,
+                versionId: latestRequest.versionId,
+                versionName: latestRequest.versionName
+            });
+            res.json({
+                status: 'ok',
+                hasRequest: true,
+                request: latestRequest
+            });
+        } else {
+            res.json({
+                status: 'ok',
+                hasRequest: false
+            });
+        }
+    } catch (error) {
+        console.error('Error polling viewer load request:', error);
+        res.status(500).json({
+            status: 'error',
+            error: error.message
         });
     }
 });

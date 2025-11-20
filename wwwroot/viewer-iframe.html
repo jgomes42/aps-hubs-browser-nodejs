@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/x-icon" href="https://cdn.autodesk.io/favicon.ico">
+    <link rel="stylesheet" href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.css">
+    <title>Autodesk Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        #viewer-container {
+            width: 100%;
+            height: 100%;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #666;
+            font-family: Arial, sans-serif;
+            z-index: 1000;
+        }
+        #error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #d32f2f;
+            font-family: Arial, sans-serif;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 80%;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="viewer-container"></div>
+    <div id="loading">Loading viewer...</div>
+    <div id="error" style="display: none;"></div>
+
+    <script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.js"></script>
+    <script>
+        let viewer = null;
+        let currentUrn = null;
+
+        // Get URN from URL parameter (optional - prefer postMessage)
+        const urlParams = new URLSearchParams(window.location.search);
+        const urnParam = urlParams.get('urn') ? decodeURIComponent(urlParams.get('urn')) : null;
+
+        // Get access token function
+        async function getAccessToken(callback) {
+            try {
+                const resp = await fetch('/api/auth/token', {
+                    credentials: 'include'
+                });
+                if (!resp.ok) {
+                    throw new Error(`Token fetch failed: ${resp.status} ${resp.statusText}`);
+                }
+                const { access_token, expires_in } = await resp.json();
+                callback(access_token, expires_in);
+            } catch (err) {
+                console.error('Error fetching token:', err);
+                showError('Could not obtain access token. Please ensure you are logged in.');
+                callback('', 0);
+            }
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function hideError() {
+            document.getElementById('error').style.display = 'none';
+        }
+
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        // Initialize viewer
+        function initViewer() {
+            if (viewer) {
+                return; // Already initialized
+            }
+
+            Autodesk.Viewing.FeatureFlags.set('DS_ENDPOINTS', true);
+            Autodesk.Viewing.Initializer({ 
+                env: 'AutodeskProduction', 
+                getAccessToken 
+            }, function () {
+                const config = {
+                    extensions: ['Autodesk.DocumentBrowser']
+                };
+                viewer = new Autodesk.Viewing.GuiViewer3D(document.getElementById('viewer-container'), config);
+                viewer.start();
+                viewer.setTheme('light-theme');
+                
+                // Listen for model events
+                viewer.addEventListener(Autodesk.Viewing.MODEL_ADDED_EVENT, function() {
+                    hideLoading();
+                    hideError();
+                    // Notify parent window that model loaded successfully
+                    if (window.parent && window.parent !== window) {
+                        window.parent.postMessage({
+                            type: 'viewer-model-loaded',
+                            urn: currentUrn
+                        }, '*');
+                    }
+                });
+
+                viewer.addEventListener(Autodesk.Viewing.ERROR_EVENT, function(event) {
+                    console.error('Viewer error:', event);
+                    showError('Error loading model. See console for details.');
+                });
+
+                hideLoading();
+                
+                // Always set up message listener (for dynamic URN loading)
+                window.addEventListener('message', function(event) {
+                    if (event.data && event.data.type === 'load-model') {
+                        loadModel(event.data.urn);
+                    }
+                });
+                
+                // Notify parent that viewer is ready
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({
+                        type: 'viewer-ready'
+                    }, '*');
+                }
+                
+                // Load URN if provided in URL (for direct access)
+                if (urnParam) {
+                    loadModel(urnParam);
+                }
+            });
+        }
+
+        // Load model function
+        function loadModel(urn) {
+            if (!viewer) {
+                console.error('Viewer not initialized');
+                return;
+            }
+
+            if (!urn) {
+                console.error('No URN provided');
+                showError('No URN provided');
+                return;
+            }
+
+            currentUrn = urn;
+            showLoading();
+            hideError();
+
+            console.log('🔍 loadModel called with URN:', urn);
+            console.log('🔍 URN type:', typeof urn);
+            console.log('🔍 URN starts with urn:?', urn.startsWith('urn:'));
+
+            // Encode URN for Autodesk Viewer
+            // The main app does: Autodesk.Viewing.toUrlSafeBase64(id) where id is the FULL URN including ?version=N
+            // Then in viewer.js: Document.load('urn:' + encodedUrn)
+            // So we need to encode the FULL URN including 'urn:' prefix AND query parameters
+            
+            // DO NOT strip query parameters - they are part of the URN!
+            const urnToEncode = urn;
+            console.log('🔍 URN to encode:', urnToEncode);
+            
+            // Check if it's already base64 encoded (base64 strings are alphanumeric with _ and -)
+            const isBase64 = urnToEncode && /^[A-Za-z0-9_-]+$/.test(urnToEncode) && urnToEncode.length > 20;
+            console.log('🔍 Is base64?', isBase64);
+            
+            let encodedUrn;
+            if (isBase64) {
+                // Already encoded, use as-is
+                encodedUrn = urnToEncode;
+                console.log('🔍 Using URN as-is (already encoded)');
+            } else {
+                // Encode the full URN (including 'urn:' prefix AND ?version=N parameter)
+                // This matches what the main app does: Autodesk.Viewing.toUrlSafeBase64(id)
+                console.log('🔍 Encoding URN:', urnToEncode);
+                encodedUrn = Autodesk.Viewing.toUrlSafeBase64(urnToEncode);
+                console.log('🔍 Encoded result:', encodedUrn);
+            }
+
+            console.log('Loading model - Original URN:', urn);
+            console.log('Encoded URN:', encodedUrn);
+
+            function onDocumentLoadSuccess(doc) {
+                console.log('Document loaded successfully');
+                viewer.loadDocumentNode(doc, doc.getRoot().getDefaultGeometry());
+            }
+
+            function onDocumentLoadFailure(code, message) {
+                console.error('❌ Error loading document:', code, message);
+                console.error('❌ Failed URN:', currentUrn);
+                console.error('❌ Encoded URN:', encodedUrn);
+                
+                let errorMsg = `Failed to load model: ${message || code}`;
+                
+                if (code === 4 || (message && message.includes('401'))) {
+                    errorMsg = 'Authentication failed (401). The file may not have been translated yet, or your token may not have access to this file. Try uploading the file to Autodesk first.';
+                } else if (code === 5 || (message && message.includes('404'))) {
+                    errorMsg = 'Model not found (404). The file needs to be translated first. Upload it to Autodesk Viewer to generate derivatives.';
+                } else if (code === 7 || (message && message.includes('400'))) {
+                    errorMsg = 'Bad request (400). The URN format may be incorrect or the file has not been processed yet.';
+                }
+                
+                showError(errorMsg);
+                
+                // Notify parent window of error
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({
+                        type: 'viewer-error',
+                        urn: currentUrn,
+                        code: code,
+                        message: errorMsg
+                    }, '*');
+                }
+            }
+
+            try {
+                Autodesk.Viewing.Document.load('urn:' + encodedUrn, onDocumentLoadSuccess, onDocumentLoadFailure);
+            } catch (err) {
+                console.error('Error calling Document.load:', err);
+                showError(`Failed to start loading: ${err.message}`);
+            }
+        }
+
+        // Start initialization when page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initViewer);
+        } else {
+            initViewer();
+        }
+    </script>
+</body>
+</html>
+

@@ -1,18 +1,24 @@
 import React, { useState } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import McpUIPanel from './components/McpUIPanel.jsx';
+import Viewer from './components/Viewer.jsx';
+import VersionViewer from './components/VersionViewer.jsx';
 
-function App() {
-  const [resourceId, setResourceId] = useState('project/info');
+function Home() {
+  const [resourceId, setResourceId] = useState('folder/actions');
   const [data, setData] = useState({
-    projectId: '',
-    hubId: '',
+    projectId: 'a.YnVzaW5lc3M6c3N0dGVzdDEwMTUzIzIwMjUwOTA1OTc3NTg3OTUx',
+    hubId: 'a.YnVzaW5lc3M6c3N0dGVzdDEwMTUz',
     projectName: '',
-    folderId: '',
-    folderName: '',
+    folderId: 'urn:adsk.wipprod:fs.folder:co.5qLr7tsaSNCflEcSTre6nQ',
+    folderName: 'My Folder',
     hubName: '',
     projectCount: '',
   });
   const [showPanel, setShowPanel] = useState(false);
+  const [viewerUrn, setViewerUrn] = useState(null);
+  const [showViewer, setShowViewer] = useState(false);
+  const navigate = useNavigate();
 
   const handleOpen = () => {
     setShowPanel(true);
@@ -20,6 +26,26 @@ function App() {
 
   const handleClose = () => {
     setShowPanel(false);
+  };
+
+  const handleViewerLoad = (urn, itemId, versionId, projectId, hubId) => {
+    console.log('Loading viewer with URN:', urn, 'itemId:', itemId, 'versionId:', versionId);
+    
+    // If we have itemId and versionId, navigate to standalone viewer
+    if (itemId && versionId && projectId) {
+      const params = new URLSearchParams({ projectId });
+      if (hubId) params.set('hubId', hubId);
+      navigate(`/viewer/${encodeURIComponent(itemId)}/${encodeURIComponent(versionId)}?${params.toString()}`);
+    } else {
+      // Fallback to inline viewer
+      setViewerUrn(urn);
+      setShowViewer(true);
+    }
+  };
+
+  const handleViewerClose = () => {
+    setShowViewer(false);
+    setViewerUrn(null);
   };
 
   return (
@@ -175,10 +201,66 @@ function App() {
             resourceId={resourceId}
             data={data}
             onClose={handleClose}
+            onViewerLoad={handleViewerLoad}
           />
         </div>
       )}
+
+      {showViewer && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'white',
+          zIndex: 2000,
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          <div style={{
+            padding: '10px 20px',
+            background: '#f5f5f5',
+            borderBottom: '1px solid #ddd',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}>
+            <h3 style={{ margin: 0 }}>3D Viewer</h3>
+            <button
+              onClick={handleViewerClose}
+              style={{
+                padding: '8px 16px',
+                background: '#dc3545',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '14px',
+              }}
+            >
+              Close Viewer
+            </button>
+          </div>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <Viewer urn={viewerUrn} />
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/viewer/:itemId/:versionId" element={<VersionViewer />} />
+        <Route path="/viewer/:itemId/:versionId/:projectId" element={<VersionViewer />} />
+        <Route path="/viewer/:itemId/:versionId/:projectId/:hubId" element={<VersionViewer />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

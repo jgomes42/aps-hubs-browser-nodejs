@@ -17,7 +17,20 @@ router.get('/api/auth/callback', authCallbackMiddleware, function (req, res) {
 });
 
 router.get('/api/auth/token', authRefreshMiddleware, function (req, res) {
-    res.json(req.publicOAuthToken);
+    // Enable CORS for cross-origin requests from React app
+    const origin = req.headers.origin;
+    if (origin && (origin.startsWith('http://localhost:3000') || origin.startsWith('http://localhost:8080'))) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+    }
+    
+    // Return token in format expected by Viewer component
+    const tokenData = req.publicOAuthToken || {};
+    res.json({
+        access_token: tokenData.access_token || req.internalOAuthToken?.access_token,
+        expires_in: tokenData.expires_in || req.internalOAuthToken?.expires_in,
+        ...tokenData
+    });
 });
 
 router.get('/api/auth/profile', authRefreshMiddleware, async function (req, res, next) {

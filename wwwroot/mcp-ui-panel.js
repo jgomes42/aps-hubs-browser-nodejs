@@ -76,7 +76,7 @@ function McpUIPanel({ resourceId, data = {}, onClose }) {
     // Listen for postMessage from iframe and handle actions
     React.useEffect(() => {
         const handleMessage = async (event) => {
-            // Only handle messages that look like UI actions
+            // Handle tool actions
             if (event.data && event.data.type === 'tool' && event.data.payload) {
                 console.log('Received postMessage action from iframe:', event.data);
                 
@@ -102,6 +102,148 @@ function McpUIPanel({ resourceId, data = {}, onClose }) {
                     }
                 } catch (err) {
                     console.error('Error handling postMessage action:', err);
+                    // Send error back to iframe
+                    if (event.source && event.source.postMessage) {
+                        event.source.postMessage({
+                            type: 'action-result',
+                            status: 'error',
+                            error: err.message
+                        }, '*');
+                    }
+                }
+            }
+            // Handle intent actions
+            else if (event.data && event.data.type === 'intent' && event.data.payload) {
+                console.log('Received postMessage intent from iframe:', event.data);
+                
+                const { intent, params } = event.data.payload;
+                
+                try {
+                    // Handle view_version intent - load version in viewer
+                    if (intent === 'view_version') {
+                        console.log('Handling view_version intent:', params);
+                        
+                        // First, send intent to backend to get viewer URN
+                        const response = await fetch('/mcp-ui/action', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            credentials: 'include',
+                            body: JSON.stringify(event.data),
+                        });
+                        
+                        const result = await response.json();
+                        console.log('Intent result:', result);
+                        
+                        // Try to load the version in the viewer
+                        if (params.versionId) {
+                            console.log('Processing viewer opening for version:', params.versionId);
+                            console.log('Result data:', result.data);
+                            
+                            // Use viewerUrl from response if available, otherwise construct it
+                            let viewerUrl = result.data?.viewerUrl;
+                            
+                            if (!viewerUrl) {
+                                // Construct viewer URL - need to base64 encode the URN
+                                // Remove query parameters from versionId for URN encoding
+                                let urn = params.versionId;
+                                if (urn.includes('?')) {
+                                    urn = urn.split('?')[0];
+                                }
+                                
+                                // Base64 encode the URN (URL-safe base64)
+                                try {
+                                    const base64Urn = btoa(urn)
+                                        .replace(/\+/g, '-')
+                                        .replace(/\//g, '_')
+                                        .replace(/=/g, '');
+                                    viewerUrl = `https://aps.autodesk.com/viewers/viewer.html?urn=${base64Urn}`;
+                                } catch (encodeErr) {
+                                    console.error('Error encoding URN:', encodeErr);
+                                    // Fallback: use versionId as-is
+                                    viewerUrl = `https://aps.autodesk.com/viewers/viewer.html?urn=${encodeURIComponent(params.versionId)}`;
+                                }
+                            }
+                            
+                            console.log('Opening viewer for version:', params.versionName || params.versionId);
+                            
+                            // Extract the base URN from versionId (remove query parameters)
+                            let baseUrn = params.versionId;
+                            if (baseUrn.includes('?')) {
+                                baseUrn = baseUrn.split('?')[0];
+                            }
+                            
+                            // Always try to send message to main window to load in viewer (preferred method)
+                            // The main window has a listener for 'load-viewer-version' messages
+                            if (window.parent && window.parent !== window) {
+                                // Send message to parent (main window) to load in viewer
+                                const message = {
+                                    type: 'load-viewer-version',
+                                    versionId: params.versionId,
+                                    itemId: params.itemId,
+                                    hubId: params.hubId,
+                                    projectId: params.projectId,
+                                    versionName: params.versionName,
+                                    viewerUrn: result.data?.viewerUrn || baseUrn, // Use base URN without query params
+                                    viewerUrl: viewerUrl
+                                };
+                                window.parent.postMessage(message, '*');
+                                console.log('Sent load-viewer-version message to main window to load inline:', message);
+                            } else {
+                                // Not in iframe - we're probably standalone
+                                // Try to open in new window as fallback
+                                console.log('Not in iframe context, opening viewer in new window');
+                                try {
+                                    const viewerWindow = window.open(viewerUrl, '_blank');
+                                    if (!viewerWindow) {
+                                        console.warn('Popup blocked. Please allow pop-ups for this site.');
+                                        alert('Popup blocked. Please allow pop-ups to open the viewer.');
+                                    } else {
+                                        console.log('Opened viewer in new window (fallback)');
+                                    }
+                                } catch (viewerErr) {
+                                    console.error('Error opening viewer:', viewerErr);
+                                    alert('Error opening viewer: ' + viewerErr.message);
+                                }
+                            }
+                        } else {
+                            console.error('No versionId provided in params:', params);
+                        }
+                        
+                        // Send result back to iframe
+                        if (event.source && event.source.postMessage) {
+                            event.source.postMessage({
+                                type: 'action-result',
+                                status: 'ok',
+                                message: `Loading version: ${params.versionName || params.versionId}`,
+                                data: result.data
+                            }, '*');
+                        }
+                    } else {
+                        // Handle other intents by sending to backend
+                        const response = await fetch('/mcp-ui/action', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            credentials: 'include',
+                            body: JSON.stringify(event.data),
+                        });
+                        
+                        const result = await response.json();
+                        console.log('Intent result:', result);
+                        
+                        // Send result back to iframe
+                        if (event.source && event.source.postMessage) {
+                            event.source.postMessage({
+                                type: 'action-result',
+                                ...result
+                            }, '*');
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error handling postMessage intent:', err);
                     // Send error back to iframe
                     if (event.source && event.source.postMessage) {
                         event.source.postMessage({

@@ -533,6 +533,17 @@ function createFolderActionsPanel(folderData = {}) {
                     
                     console.log('Version clicked:', { versionId, itemId, versionName });
                     
+                    // Visual feedback
+                    this.style.background = '#e3f2fd';
+                    setTimeout(() => {
+                        this.style.background = '';
+                    }, 500);
+                    
+                    // Update status
+                    status.className = '';
+                    status.textContent = 'Loading version...';
+                    status.style.display = 'block';
+                    
                     // Send intent to view this version
                     const action = {
                         type: 'intent',
@@ -548,8 +559,23 @@ function createFolderActionsPanel(folderData = {}) {
                         }
                     };
                     
+                    // Send message to parent window (postMessage works even in sandboxed iframes)
                     if (window.parent && window.parent !== window) {
+                        // Send to parent window - this will be handled by mcp-ui-panel.js
                         window.parent.postMessage(action, '*');
+                        console.log('Sent view_version intent to parent window');
+                    } else {
+                        // Fallback: try to open viewer directly if not in iframe
+                        try {
+                            const viewerUrl = 'https://aps.autodesk.com/viewers/viewer.html?urn=' + encodeURIComponent(versionId);
+                            window.open(viewerUrl, '_blank');
+                            status.className = 'success';
+                            status.textContent = 'Opening version in new window...';
+                        } catch (err) {
+                            console.error('Error opening viewer:', err);
+                            status.className = 'error';
+                            status.textContent = 'Error opening viewer. See console for details.';
+                        }
                     }
                 });
             });
@@ -558,48 +584,81 @@ function createFolderActionsPanel(folderData = {}) {
             console.log('Results div should now be visible');
         }
         
+        // Helper function to extract result from different message formats
+        function extractActionResult(messageData) {
+            // Handle direct action-result format
+            if (messageData && messageData.type === 'action-result') {
+                return messageData;
+            }
+            
+            // Handle MCP UI client's ui-message-response format
+            if (messageData && messageData.type === 'ui-message-response' && messageData.payload) {
+                const response = messageData.payload.response || messageData.payload;
+                if (response && (response.status || response.data || response.error)) {
+                    return response;
+                }
+            }
+            
+            // Handle nested response format
+            if (messageData && messageData.payload && messageData.payload.response) {
+                return messageData.payload.response;
+            }
+            
+            return null;
+        }
+        
         // Listen for action results
         window.addEventListener('message', (event) => {
             console.log('Folder Actions Panel - Received message:', event.data);
             
-            if (event.data && event.data.type === 'action-result') {
+            const result = extractActionResult(event.data);
+            
+            if (result) {
                 console.log('Action result received:', {
-                    status: event.data.status,
-                    hasData: !!event.data.data,
-                    dataKeys: event.data.data ? Object.keys(event.data.data) : []
+                    status: result.status,
+                    hasData: !!result.data,
+                    dataKeys: result.data ? Object.keys(result.data) : []
                 });
                 
-                if (event.data.status === 'ok') {
+                if (result.status === 'ok') {
                     status.className = 'success';
-                    status.textContent = 'Action completed successfully!';
+                    status.textContent = result.message || 'Action completed successfully!';
+                    
+                    // Handle view_version intent response
+                    if (result.data && result.data.intent === 'view_version') {
+                        console.log('Version view intent processed:', result.data);
+                        // The viewer should have been opened by the parent window
+                        status.textContent = 'Opening version in viewer...';
+                        return;
+                    }
                     
                     // If we have data, render it
-                    if (event.data.data) {
-                        console.log('Rendering folder contents:', event.data.data);
+                    if (result.data) {
+                        console.log('Rendering folder contents:', result.data);
                         // Check if it's folder details data
-                        if (event.data.data.items !== undefined) {
+                        if (result.data.items !== undefined) {
                             console.log('Found items array, rendering...');
-                            renderFolderContents(event.data.data);
-                        } else if (event.data.data.itemCount !== undefined) {
+                            renderFolderContents(result.data);
+                        } else if (result.data.itemCount !== undefined) {
                             console.log('Found itemCount, rendering...');
                             // refreshFolder response
-                            renderFolderContents(event.data.data);
+                            renderFolderContents(result.data);
                         } else {
-                            console.warn('Data exists but no items or itemCount found:', event.data.data);
+                            console.warn('Data exists but no items or itemCount found:', result.data);
                         }
                     } else {
                         console.warn('No data in action result');
                     }
                 } else {
                     status.className = 'error';
-                    status.textContent = 'Action failed: ' + (event.data.error || 'Unknown error');
+                    status.textContent = 'Action failed: ' + (result.error || 'Unknown error');
                     const resultsDiv = document.getElementById('results');
                     if (resultsDiv) {
                         resultsDiv.classList.remove('show');
                     }
                 }
             } else {
-                console.log('Message ignored - not an action-result:', event.data);
+                console.log('Message ignored - not a recognized action result format:', event.data);
             }
         });
     </script>
