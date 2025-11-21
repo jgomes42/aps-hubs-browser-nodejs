@@ -4,7 +4,15 @@
 
 This document provides a comprehensive technical overview of the Model Context Protocol (MCP) UI integration implemented for the Autodesk Platform Services (APS) Hubs Browser application. The implementation explores the capabilities of MCP UI for creating interactive, AI-powered interfaces that enable natural language access to secured 3D design data and complex viewer interactions within modern development environments.
 
-**Status**: Implementation is **specification-compliant** and successfully achieves all technical objectives. The server-side infrastructure is production-ready and includes OAuth2 authentication, interactive tree navigation, 3D viewer integration, and complex user interactions. These capabilities have been **validated in a standalone React web application** using MCP UI libraries, but end-to-end validation in a native MCP client context (Cursor IDE, Claude Desktop) is currently limited by the **lack of MCP UI protocol support in mainstream MCP client tools**. When client support arrives, this implementation will work immediately without modification.
+**Status**: Implementation is **specification-compliant** and successfully achieves all technical objectives. The server-side infrastructure is production-ready and includes OAuth2 authentication, interactive tree navigation, 3D viewer integration, and complex user interactions. These capabilities have been **validated in a standalone React web application** using MCP UI libraries, but end-to-end validation in a native MCP client context (Cursor IDE, Claude Desktop) is currently limited by the **lack of MCP UI protocol support in mainstream MCP client tools**. 
+
+**⚠️ IMPORTANT - CURRENT ARCHITECTURE**: The MCP server (`mcp-server.js`) is currently **NOT wired up** to the React app or any other component. The React app communicates with the Express server via HTTP only. The MCP server exists and is specification-compliant, but it's **dormant** and not being used because:
+1. Cursor IDE doesn't support MCP UI protocol yet
+2. The React app is a **demo/validation tool**, not an MCP client
+3. When Cursor adds MCP UI support, the MCP server will be activated via stdio
+
+**What's Running**: Express server (HTTP) + React app (port 3000)  
+**What's Ready But Dormant**: MCP server (stdio/JSON-RPC - not being used)
 
 **Key Achievement**: We have successfully **implemented and server-side validated** that MCP UI can handle:
 - ✅ Authenticated access to secured data (OAuth2) - *validated in standalone web app*
@@ -151,7 +159,17 @@ The APS Hubs Browser is a Node.js application that provides access to Autodesk P
 
 ### 3.1 System Architecture
 
+**⚠️ NOTE: Two Separate Implementations**
+
+The system currently has **TWO independent implementations**:
+1. **HTTP-based** (Express + React app) - **ACTIVELY RUNNING**
+2. **MCP Protocol** (MCP server via stdio) - **READY BUT NOT RUNNING**
+
 ```
+┌────────────────────────────────────────────────────────────┐
+│           MCP CLIENT PATH (Future - Not Active)            │
+└────────────────────────────────────────────────────────────┘
+
 ┌─────────────────────────────────────────────────────────────┐
 │                    MCP Client (Cursor IDE)                  │
 │  ┌──────────────────────────────────────────────────────┐  │
@@ -160,9 +178,11 @@ The APS Hubs Browser is a Node.js application that provides access to Autodesk P
 │  └──────────────────────────────────────────────────────┘  │
 └───────────────────────┬─────────────────────────────────────┘
                         │ stdio / JSON-RPC
+                        │ (when supported)
                         │
 ┌───────────────────────▼─────────────────────────────────────┐
 │              MCP Server (mcp-server.js)                    │
+│              ⚠️ READY BUT NOT RUNNING                      │
 │  ┌──────────────────────────────────────────────────────┐  │
 │  │  @modelcontextprotocol/sdk                            │  │
 │  │  @mcp-ui/server (createUIResource)                    │  │
@@ -171,27 +191,43 @@ The APS Hubs Browser is a Node.js application that provides access to Autodesk P
 │  │  Resources: aps://hubs, aps://hubs/{hubId}, etc.     │  │
 │  │  UI Resources: Interactive HTML components            │  │
 │  └──────────────────────────────────────────────────────┘  │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-        ┌───────────────┼───────────────┐
-        │               │               │
+└─────────────────────────────────────────────────────────────┘
+
+
+┌────────────────────────────────────────────────────────────┐
+│           HTTP PATH (Current - Actively Running)           │
+└────────────────────────────────────────────────────────────┘
+
+┌───────────────────────┬─────────────────────────────────────┐
+│                       │                                     │
+│                       │                                     │
 ┌───────▼──────┐ ┌──────▼──────┐ ┌──────▼──────┐
 │ Express API  │ │ APS SDK     │ │ Auth        │
 │ (routes/     │ │ (services/  │ │ (routes/    │
 │  mcpUi.js)   │ │  aps.js)    │ │  auth.js)   │
+│ ✅ RUNNING   │ │ ✅ RUNNING  │ │ ✅ RUNNING  │
 └──────────────┘ └─────────────┘ └─────────────┘
         │
-        │ HTTP
+        │ HTTP (not MCP protocol!)
         │
 ┌───────▼───────────────────────────────────────┐
 │     Standalone React App (mcp-ui-app/)        │
+│     ✅ RUNNING on port 3000                   │
 │  ┌─────────────────────────────────────────┐  │
 │  │  @mcp-ui/client (UIResourceRenderer)     │  │
+│  │  - Library only, NOT MCP protocol        │  │
 │  │  React Router                            │  │
 │  │  Autodesk Viewer Integration             │  │
 │  └─────────────────────────────────────────┘  │
 └────────────────────────────────────────────────┘
 ```
+
+**Key Points**:
+- The **top path** (MCP server) is implemented but **not running**
+- The **bottom path** (Express + React) is **actively running** via HTTP
+- They share `ui-components.js` (same UI generation logic)
+- Different transports: stdio/JSON-RPC vs. HTTP
+- The MCP protocol is **not being used** currently
 
 ### 3.2 Component Breakdown
 
@@ -199,26 +235,35 @@ The APS Hubs Browser is a Node.js application that provides access to Autodesk P
 - **Purpose**: Implements the MCP protocol server
 - **Technology**: `@modelcontextprotocol/sdk`, `@mcp-ui/server`
 - **Transport**: stdio (standard MCP)
+- **Status**: ⚠️ **READY BUT NOT RUNNING** - Not wired up to anything
 - **Features**:
   - 6 tools for APS data interaction
   - 3 resource endpoints for hierarchical data
   - UI resource generation using `createUIResource()`
+- **Why Not Running**: Awaiting MCP UI client support (Cursor IDE, Claude Desktop)
 
 #### 3.2.2 Express Backend (`routes/mcpUi.js`)
-- **Purpose**: Serves UI resources and handles actions for web clients
+- **Purpose**: Serves UI resources and handles actions for web clients via HTTP
+- **Status**: ✅ **ACTIVELY RUNNING** - This is what the React app actually uses
+- **Transport**: HTTP (not MCP protocol!)
 - **Endpoints**:
   - `GET /mcp-ui/resource/:resourceId` - Fetch UI resources
   - `GET /mcp-ui/resources` - List available resources
   - `POST /mcp-ui/action` - Handle UI actions (tools, intents)
   - `GET /mcp-ui/api/item/:projectId/:itemId/versions` - Custom API for version data
+- **Note**: Uses same UI generation logic as MCP server (shares `ui-components.js`)
 
 #### 3.2.3 Standalone React Client (`mcp-ui-app/`)
-- **Purpose**: Demonstrates MCP UI rendering in a web context
+- **Purpose**: Demonstrates MCP UI rendering in a web context (not an MCP client!)
+- **Status**: ✅ **ACTIVELY RUNNING** on port 3000
 - **Technology**: React, `@mcp-ui/client`, React Router, Vite
+- **Important**: This is **NOT** an MCP client - it uses HTTP, not MCP protocol
+- **Transport**: HTTP requests to Express server (not stdio/JSON-RPC)
 - **Components**:
   - `McpUIPanel` - Wraps `UIResourceRenderer` for resource display
   - `VersionViewer` - Standalone viewer for item versions
   - `Viewer` - Autodesk Platform Services 3D viewer integration
+- **Role**: Validation tool to prove MCP UI resource format works
 
 ---
 

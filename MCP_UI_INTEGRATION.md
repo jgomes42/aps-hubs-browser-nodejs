@@ -7,7 +7,15 @@ This document describes the MCP UI integration added to the APS Hubs Browser. Th
 - Standalone React app that demonstrates UI resource rendering
 - Full Autodesk Viewer integration with 3D model interaction
 
-**Current Status**: All features implemented and validated in standalone React app. Awaiting MCP UI protocol support in mainstream clients (Cursor IDE, Claude Desktop) for full end-to-end validation.
+**Current Status**: All features implemented and validated in standalone React app. 
+
+**⚠️ IMPORTANT**: The MCP server (`mcp-server.js`) is currently **NOT wired up** to the React app. The React app uses HTTP endpoints from the Express server, not the MCP protocol (stdio/JSON-RPC). The MCP server exists and is specification-compliant, but it's **not being used** because:
+1. Cursor IDE doesn't support MCP UI protocol yet
+2. The React app is a **demo/validation tool**, not an MCP client
+3. When Cursor adds MCP UI support, the MCP server will be activated via stdio
+
+**What's Running Now**: Express server (HTTP) + React app  
+**What's Ready But Not Running**: MCP server (stdio/JSON-RPC)
 
 ## Architecture
 
@@ -22,31 +30,50 @@ This document describes the MCP UI integration added to the APS Hubs Browser. Th
 └──────────────┬──────────────────────┘
                │ stdio / JSON-RPC
                │ (when supported)
+               │
 ┌──────────────▼──────────────────────┐
 │   MCP Server (mcp-server.js)        │
+│   ⚠️  READY BUT NOT CURRENTLY       │
+│      CONNECTED TO ANYTHING          │
 │   - Generates UI resources          │
 │   - Handles tool calls              │
 │   - @mcp-ui/server                  │
-└──────────────┬──────────────────────┘
-               │
-               │
-┌──────────────▼──────────────────────┐
-│   Express Server (server.js)        │
-│   - OAuth2 authentication           │
-│   - Serves UI resources via HTTP    │
-│   - Routes: /mcp-ui/*               │
-└──────────────┬──────────────────────┘
+│   - Awaiting client support         │
+└─────────────────────────────────────┘
+
+
+         ┌──────────────────────────┐
+         │  CURRENT IMPLEMENTATION  │
+         │  (No MCP protocol used)  │
+         └──────────────────────────┘
+                     │
+┌────────────────────▼─────────────────┐
+│   Express Server (server.js)         │
+│   ✅ ACTIVE - Running on port 8080   │
+│   - OAuth2 authentication            │
+│   - Serves UI resources via HTTP     │
+│   - Routes: /mcp-ui/*                │
+│   - Generates same UI as MCP server  │
+│     (shares ui-components.js)        │
+└──────────────┬───────────────────────┘
                │ HTTP
                │
-┌──────────────▼──────────────────────┐
-│   Standalone React App              │
-│   (mcp-ui-app/) - PORT 3000         │
-│   - Demonstrates UI rendering       │
-│   - Uses @mcp-ui/client             │
-│   - Autodesk Viewer integration     │
-│   - Version navigation              │
-└─────────────────────────────────────┘
+┌──────────────▼───────────────────────┐
+│   Standalone React App               │
+│   ✅ ACTIVE - Running on port 3000   │
+│   (mcp-ui-app/)                      │
+│   - NOT AN MCP CLIENT                │
+│   - Uses HTTP, not MCP protocol      │
+│   - Demonstrates UI rendering        │
+│   - Uses @mcp-ui/client              │
+│   - Autodesk Viewer integration      │
+│   - Version navigation               │
+└──────────────────────────────────────┘
 ```
+
+**Key Point**: The diagram shows TWO separate implementations:
+1. **Top**: MCP server (ready, not running)
+2. **Bottom**: Express + React (running, but not using MCP protocol)
 
 ## What Was Added
 
@@ -137,7 +164,11 @@ Organized UI resource definitions:
 
 ## How It Works
 
-### Current Implementation: HTTP + React App
+### Current Implementation: HTTP Only (No MCP Protocol)
+
+**⚠️ The MCP server is NOT being used currently!**
+
+The standalone React app uses a pure HTTP architecture:
 
 **1. User Accesses React App**
 ```
@@ -145,43 +176,68 @@ http://localhost:3000
   ↓
 React App loads
   ↓
-Fetches UI resources from Express server
+Fetches UI resources from Express server via HTTP (not MCP protocol!)
   ↓
-Renders using @mcp-ui/client
+Renders using @mcp-ui/client (library only, not protocol)
 ```
 
-**2. UI Resource Fetching**
+**2. UI Resource Fetching (HTTP, not MCP)**
 ```javascript
-// React app fetches from Express
+// React app fetches from Express via HTTP
 fetch('http://localhost:8080/mcp-ui/resource/folder/actions?projectId=...', {
     credentials: 'include'  // Include session cookies
 })
+// This is HTTP, NOT MCP protocol (stdio/JSON-RPC)
 ```
 
-**3. Action Handling**
+**3. Action Handling (HTTP, not MCP)**
 ```javascript
 // When user clicks in UI resource
-UI component → postMessage → React wrapper → HTTP POST to /mcp-ui/action → Express → APS API
+UI component 
+  → postMessage 
+  → React wrapper 
+  → HTTP POST to /mcp-ui/action  // Still HTTP!
+  → Express 
+  → APS API
 ```
+
+**What's NOT happening**:
+- ❌ MCP server (`mcp-server.js`) is not running
+- ❌ No stdio communication
+- ❌ No JSON-RPC messages
+- ❌ No MCP protocol at all
+
+**What IS happening**:
+- ✅ Express generates similar UI resources (uses same `ui-components.js`)
+- ✅ React app renders them with `@mcp-ui/client` library
+- ✅ All communication is HTTP
+- ✅ This validates the UI format works
 
 ### Future: MCP Protocol via Cursor IDE
 
 **When Cursor IDE supports MCP UI** (not yet available):
+
 ```
 User in Cursor: "Show me my Fusion Hubs"
   ↓
-Cursor calls MCP server via stdio
+Cursor calls MCP server via stdio (NEW!)
   ↓
-MCP server generates UI resource
+MCP server (mcp-server.js) generates UI resource (ACTIVATES!)
   ↓
-Returns via JSON-RPC
+Returns via JSON-RPC over stdio (NEW!)
   ↓
 Cursor renders HTML in sidebar/panel
   ↓
 User interacts with UI
   ↓
-Actions sent back via MCP protocol
+Actions sent back via MCP protocol (JSON-RPC)
+  ↓
+MCP server handles action
+  ↓
+OAuth still via Express server (HTTP for callback)
 ```
+
+**Key Difference**: In the future, `mcp-server.js` will actually run and communicate via stdio/JSON-RPC instead of HTTP.
 
 ### UI Resource Format
 ```javascript
@@ -537,38 +593,52 @@ The Model Derivative service uses the full file version URN (with `?version=N`) 
 - ✅ Search functionality
 - ✅ 3D viewer with full interaction (drag, zoom, pan)
 - ✅ Version navigation (previous/next, dropdown)
-- ✅ MCP UI resource rendering via `@mcp-ui/client`
+- ✅ MCP UI resource **format** rendering via `@mcp-ui/client` library
 - ✅ postMessage communication between UI and app
 - ✅ CORS configuration with credentials
 
-**MCP Server** (mcp-server.js):
+**Express Backend** (server.js - port 8080):
+- ✅ OAuth2 flow working
+- ✅ Session management
+- ✅ UI resource serving via HTTP (generates same HTML as MCP server would)
+- ✅ Action handling endpoint
+- ✅ Custom API endpoints for versions
+- ✅ Uses shared `ui-components.js` (same as MCP server)
+
+**MCP Server** (mcp-server.js - **NOT RUNNING**):
 - ✅ Generates specification-compliant UI resources
 - ✅ All tools return proper MCP UI format
 - ✅ Natural language query processing
 - ✅ Ready for stdio/JSON-RPC transport
-
-**Express Backend** (server.js):
-- ✅ OAuth2 flow working
-- ✅ Session management
-- ✅ UI resource serving via HTTP
-- ✅ Action handling endpoint
-- ✅ Custom API endpoints for versions
+- ⚠️ **BUT: Not currently connected to anything**
+- ⚠️ **No client is calling it via stdio**
+- ⚠️ **React app uses Express HTTP, not MCP protocol**
 
 ### ⚠️ What's Pending
 
-**MCP Client Support**:
+**MCP Protocol Integration**:
+- ❌ MCP server is not running or being used
+- ❌ No stdio communication happening
+- ❌ No JSON-RPC messages
+- ❌ React app is NOT an MCP client (uses HTTP)
 - ⚠️ Cursor IDE doesn't support MCP UI protocol yet
 - ⚠️ Claude Desktop support unclear
-- ⚠️ Cannot test UI rendering via actual MCP protocol (stdio)
-- ⚠️ Cannot test action handling via JSON-RPC
-- ⚠️ Cannot validate OAuth when MCP server runs as stdio process
 
-**What Needs Validation When Client Support Arrives**:
-1. UI resources render correctly in MCP client
-2. postMessage actions routed through MCP protocol
-3. Authentication works with stdio-based MCP server
-4. Token sharing between stdio server and HTTP OAuth server
-5. End-to-end user experience in native MCP context
+**What Needs to Happen for Full MCP**:
+1. **Cursor IDE adds MCP UI support** (client-side, out of our control)
+2. **Configure Cursor to run mcp-server.js via stdio**
+3. **MCP server activates and handles JSON-RPC**
+4. **UI resources returned via MCP protocol instead of HTTP**
+5. **Actions routed through JSON-RPC instead of HTTP POST**
+6. **OAuth integration figured out** (stdio server + HTTP callback server)
+
+**Current Reality**:
+- We have TWO separate implementations:
+  1. **Express + React** (✅ working, using HTTP)
+  2. **MCP server** (✅ ready, but not running/used)
+- They generate the **same UI** (share `ui-components.js`)
+- But use **different transport** (HTTP vs. stdio/JSON-RPC)
+- The MCP server is **dormant** until a client needs it
 
 ## Testing
 
@@ -772,24 +842,41 @@ curl http://localhost:8080/mcp-ui/resource/folder/actions?projectId=xxx
 ## Summary
 
 **What We Built**:
-- ✅ Complete MCP UI server (specification-compliant)
-- ✅ Express backend for OAuth and HTTP serving
-- ✅ Standalone React app demonstrating all features
+- ✅ Complete MCP UI server (specification-compliant, but not currently running)
+- ✅ Express backend for OAuth and HTTP serving (actively running)
+- ✅ Standalone React app demonstrating all features (actively running)
 - ✅ Full Autodesk Viewer integration
 - ✅ Interactive tree views, search, version navigation
 
-**What Works**:
-- ✅ All features functional in standalone app
+**What Works Right Now**:
+- ✅ Standalone web app with all features (HTTP-based)
 - ✅ OAuth2 authentication
 - ✅ 3D viewer with full interaction
-- ✅ MCP UI resources render correctly via `@mcp-ui/client`
+- ✅ MCP UI **resource format** renders correctly via `@mcp-ui/client` library
+
+**What's NOT Working / Not Connected**:
+- ❌ MCP server (`mcp-server.js`) is **not running**
+- ❌ No MCP protocol (stdio/JSON-RPC) communication happening
+- ❌ React app is **not** an MCP client (uses HTTP, not MCP protocol)
+- ❌ No end-to-end MCP protocol validation possible
+
+**Critical Distinction**:
+- **UI Resource Format**: ✅ Works (validated in React app)
+- **MCP Protocol**: ❌ Not being used (server ready but dormant)
 
 **What's Pending**:
 - ⚠️ MCP client support (Cursor IDE, Claude Desktop)
-- ⚠️ End-to-end validation via MCP protocol
-- ⚠️ Authentication with stdio-based MCP server
+- ⚠️ Activating the MCP server when clients support it
+- ⚠️ End-to-end validation via stdio/JSON-RPC
 
-**Bottom Line**: Implementation is complete and validated in standalone app. When MCP UI client support arrives, the server is ready to serve properly formatted resources via the MCP protocol with minimal changes needed.
+**Bottom Line**: 
+- We have a **working demo** (React app via HTTP) ✅
+- We have a **ready MCP server** (dormant, awaiting client) ✅
+- They generate the **same UI resources** (shared code) ✅
+- But they use **different transports** (HTTP vs. stdio) ⚠️
+- The **MCP protocol path is not currently active** ⚠️
+
+When MCP UI client support arrives, we'll activate the MCP server (via stdio) and the React app can potentially be deprecated in favor of native MCP client rendering.
 
 
 

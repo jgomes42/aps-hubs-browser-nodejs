@@ -1,6 +1,18 @@
 # MCP-UI End-to-End Implementation Guide
 
-Complete guide for running and testing the MCP-UI implementation.
+Complete guide for running and testing the **standalone React app** (HTTP-based implementation).
+
+**⚠️ IMPORTANT**: This guide covers the **HTTP-based implementation** only (Express server + React app). The MCP server (`mcp-server.js`) is **NOT part of this flow** and is not running. The MCP server is ready but dormant, awaiting MCP UI client support.
+
+**What This Guide Covers**:
+- ✅ Express server (HTTP endpoints)
+- ✅ React app (standalone web app)
+- ✅ HTTP communication (not MCP protocol!)
+
+**What This Guide Does NOT Cover**:
+- ❌ MCP server (mcp-server.js) - not running
+- ❌ MCP protocol (stdio/JSON-RPC) - not used
+- ❌ Cursor IDE integration - not yet supported
 
 ## 📋 Prerequisites
 
@@ -14,7 +26,7 @@ Complete guide for running and testing the MCP-UI implementation.
 
 **Terminal 1:**
 ```bash
-cd /Users/gomesj/aps-hubs-browser-nodejs
+cd /path-to-your-folder/aps-hubs-browser-nodejs
 npm start
 ```
 
@@ -27,7 +39,8 @@ Server listening on port 8080...
 - Starts Express server on port 8080
 - Serves the main web UI
 - Provides API endpoints (`/api/hubs`, `/api/auth`, etc.)
-- Provides MCP-UI endpoints (`/mcp-ui/resource/:id`, `/mcp-ui/action`)
+- Provides MCP-UI endpoints (`/mcp-ui/resource/:id`, `/mcp-ui/action`) - **via HTTP, not MCP protocol!**
+- **Note**: MCP server (`mcp-server.js`) is **NOT started** - it's not part of this flow
 
 ---
 
@@ -49,7 +62,7 @@ Server listening on port 8080...
 
 **Terminal 2:**
 ```bash
-cd /Users/gomesj/aps-hubs-browser-nodejs/mcp-ui-app
+cd /aps-hubs-browser-nodejs/mcp-ui-app
 npm run dev
 ```
 
@@ -64,7 +77,9 @@ npm run dev
 **What this does:**
 - Starts Vite dev server on port 3000
 - Serves the React MCP-UI app
-- Proxies API calls to localhost:8080 (via vite.config.js)
+- **Uses HTTP to communicate with Express server** (not MCP protocol!)
+- Renders UI resources using `@mcp-ui/client` library (format validation only)
+- **This is NOT an MCP client** - it's a standalone web app for testing
 
 ---
 
@@ -89,31 +104,21 @@ npm run dev
 3. **Click**: "Open MCP-UI Panel"
 4. **Result**: Panel should appear on the right side with interactive UI
 
-#### Option B: Use Browser Console
-
-Open browser console (F12) and run:
-
-```javascript
-// Test Project Info Panel
-fetch('/mcp-ui/resource/project/info?projectId=a.YnVzaW5lc3M6c3N0dGVzdDEwMTUzI0QyMDI1MDkwNTk3NzU4ODA1MQ&hubId=a.YnVzaW5lc3M6c3N0dGVzdDEwMTUz&projectName=Assets', {
-  credentials: 'include'
-})
-.then(r => r.json())
-.then(console.log);
-```
-
 ---
 
 ## 🔄 Complete Flow Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    END-TO-END FLOW                          │
+│              END-TO-END FLOW (HTTP-BASED ONLY)              │
+│          ⚠️ NO MCP PROTOCOL OR MCP SERVER INVOLVED          │
 └─────────────────────────────────────────────────────────────┘
 
 1. Start Main Server (Terminal 1)
    └─> npm start
-       └─> Server on :8080
+       └─> Express Server on :8080 (HTTP)
+           └─> Routes: /mcp-ui/resource/:id (HTTP endpoint, not MCP!)
+           └─> ⚠️ MCP server (mcp-server.js) NOT started
 
 2. Authenticate (Browser)
    └─> http://localhost:8080
@@ -122,6 +127,7 @@ fetch('/mcp-ui/resource/project/info?projectId=a.YnVzaW5lc3M6c3N0dGVzdDEwMTUzI0Q
 3. Start MCP-UI App (Terminal 2)
    └─> cd mcp-ui-app && npm run dev
        └─> Vite on :3000
+           └─> React app (NOT an MCP client!)
 
 4. Open MCP-UI App (Browser)
    └─> http://localhost:3000
@@ -129,16 +135,24 @@ fetch('/mcp-ui/resource/project/info?projectId=a.YnVzaW5lc3M6c3N0dGVzdDEwMTUzI0Q
 
 5. Trigger Panel
    └─> Fill form → Click "Open MCP-UI Panel"
-       └─> Fetch: GET /mcp-ui/resource/project/info?...
-           └─> Express Route (with auth middleware)
+       └─> HTTP Fetch: GET /mcp-ui/resource/project/info?...
+           └─> Express Route (HTTP, not MCP protocol!)
                └─> Calls: getUIResource('project/info', data)
-                   └─> Returns: UI Resource Object
+                   └─> Returns: UI Resource Object (HTTP response)
                        └─> React Component renders
                            └─> UIResourceRenderer displays HTML
                                └─> User interacts with panel
-                                   └─> Actions sent: POST /mcp-ui/action
-                                       └─> Backend processes action
-                                           └─> Returns result
+                                   └─> Actions sent: HTTP POST /mcp-ui/action
+                                       └─> Backend processes action (HTTP)
+                                           └─> Returns result (HTTP)
+
+┌─────────────────────────────────────────────────────────────┐
+│  KEY POINT: Everything above uses HTTP, not MCP protocol!  │
+│  - No stdio communication                                   │
+│  - No JSON-RPC messages                                     │
+│  - No MCP server running                                    │
+│  - React app is NOT an MCP client                           │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -165,8 +179,9 @@ fetch('/mcp-ui/resource/project/info?projectId=a.YnVzaW5lc3M6c3N0dGVzdDEwMTUzI0Q
 - [ ] Form displays correctly
 - [ ] Can fill in project/hub IDs
 - [ ] Panel opens when clicking button
-- [ ] Panel displays UI resource
-- [ ] Buttons in panel work (send actions)
+- [ ] Panel displays UI resource (rendered via `@mcp-ui/client` library)
+- [ ] Buttons in panel work (send HTTP POST actions)
+- [ ] **Understand**: This is NOT an MCP client - it's a web app using HTTP
 
 ---
 
@@ -297,18 +312,20 @@ npm run dev
 
 ## 📚 Files Reference
 
-### Main Server
-- `server.js` - Express server
-- `routes/mcpUi.js` - MCP-UI API routes
+### Main Server (HTTP-based)
+- `server.js` - Express server (HTTP)
+- `routes/mcpUi.js` - HTTP API routes for UI resources (NOT MCP protocol!)
 - `server/mcpUiResources/uiResources.js` - UI resource definitions
+- `ui-components.js` - Shared UI generation logic
 
-### MCP-UI App
-- `mcp-ui-app/src/App.jsx` - Main React app
-- `mcp-ui-app/src/components/McpUIPanel.jsx` - Panel component
+### MCP-UI App (Standalone React - HTTP client)
+- `mcp-ui-app/src/App.jsx` - Main React app (uses HTTP, not MCP!)
+- `mcp-ui-app/src/components/McpUIPanel.jsx` - Panel component (uses `@mcp-ui/client` library)
 - `mcp-ui-app/vite.config.js` - Vite configuration
 
-### MCP Server
-- `mcp-server.js` - MCP protocol server (for Cursor integration)
+### MCP Server (Not Part of This Flow)
+- `mcp-server.js` - ⚠️ **NOT RUNNING** - MCP protocol server (stdio/JSON-RPC)
+- Ready but dormant, awaiting MCP UI client support (Cursor IDE, Claude Desktop)
 
 ---
 
@@ -319,11 +336,17 @@ You'll know it's working when:
 1. ✅ Both servers start without errors
 2. ✅ Can authenticate in main app
 3. ✅ MCP-UI app loads without errors
-4. ✅ Can fetch resources (check Network tab)
+4. ✅ Can fetch resources via HTTP (check Network tab - should see GET /mcp-ui/resource/...)
 5. ✅ Panel renders with HTML content
 6. ✅ Buttons in panel are clickable
-7. ✅ Actions are sent and processed
+7. ✅ Actions are sent via HTTP POST (not MCP protocol!)
 8. ✅ Server logs show action processing
+
+**Important Distinction**:
+- ✅ What you're testing: MCP UI **resource format** rendering
+- ❌ What you're NOT testing: MCP **protocol** (stdio/JSON-RPC)
+- The React app validates that the UI resource **format** works
+- It does NOT validate the MCP protocol works (because it's not being used)
 
 ---
 
